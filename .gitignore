@@ -1,0 +1,14 @@
+.idea
+*.iml
+build
+logs
+*.log
+.*.swp
+.gradle
+application.pid
+out/
+gen/
+.jqwik-database
+.classpath
+.project
+bin/

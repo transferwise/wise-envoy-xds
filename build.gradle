@@ -1,0 +1,69 @@
+import org.eclipse.jgit.api.errors.RefAlreadyExistsException
+
+buildscript {
+    repositories {
+        mavenCentral()
+        mavenLocal()
+    }
+}
+
+plugins {
+    id 'java'
+    id 'idea'
+    id "at.zierler.yamlvalidator" version "1.5.0"
+    id "com.github.spotbugs" version "5.0.12" apply false
+    id "net.ltgt.errorprone" version "3.0.1" apply false
+    id 'info.solidsoft.pitest' version '1.9.0' apply false
+    id 'org.ajoberstar.grgit' version '4.1.1'
+    id 'io.github.gradle-nexus.publish-plugin' version "1.1.0"
+}
+
+idea.project {
+    vcs = 'Git'
+    languageLevel = JavaVersion.VERSION_17
+    targetBytecodeVersion = JavaVersion.VERSION_17
+}
+
+idea.module {
+    downloadJavadoc = false
+    downloadSources = true
+    excludeDirs += file('logs')
+    excludeDirs += file('gradle')
+    excludeDirs += file('build')
+    excludeDirs += file('target')
+    excludeDirs += file('.idea')
+    excludeDirs += file('.gradle')
+    excludeDirs += file('logs2')
+}
+
+yamlValidator {
+    searchPaths = ['.github/workflows/']
+    allowDuplicates = false
+    searchRecursive = true
+}
+
+task tagRelease {
+    doLast {
+        try {
+            grgit.tag.add {
+                name = "v$version"
+                message = "Release of ${version}"
+            }
+            grgit.push(refsOrSpecs: ["v$version"])
+        }
+        catch (RefAlreadyExistsException ignored) {
+            logger.warn("Tag v$version already exists.")
+        }
+    }
+}
+
+group = "com.transferwise.envoy"
+
+nexusPublishing {
+    repositories {
+        sonatype {
+            username = System.getenv("SONATYPE_USER")
+            password = System.getenv("SONATYPE_PASSWORD")
+        }
+    }
+}

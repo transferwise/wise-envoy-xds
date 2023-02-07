@@ -1,0 +1,32 @@
+@startuml
+participant CM as "Cluster Manager"
+participant DSO as "Discovery Stream Observer"
+participant DSM as "Discovery Service Manager"
+participant DS as "Discovery Service"
+CM -> DSO: onNetworkChange()
+DSO -> DSM: pushUpdates()
+note over DSM: sendMode = PRE
+loop for each Discovery Service
+DSM -> DS: onNetworkUpdate()
+note over DS: subState = PRE
+end
+loop for each Discovery Service in preOrder
+DSM -> DS: sendNetworkUpdatePre()
+note over DS: subState = POST\nawaitingAck=true
+DS --> envoy: DiscoveryResponse(addOrder)
+envoy-->DSO: onNext(ack)
+DSO->DSM: processUpdate(ack)
+DSM->DS: processUpdate(ack)
+note over DS: awaitingAck=false
+end
+note over DSM: sendMode = POST
+loop for each Discovery Service in postOrder
+DSM -> DS: sendNetworkUpdatePost()
+note over DS: subState = COMPLETED\nawaitingAck=true
+DS --> envoy: DiscoveryResponse(removeOrder)
+envoy-->DSO: onNext(ack)
+DSO->DSM: processUpdate(ack)
+DSM->DS: processUpdate(ack)
+note over DS: awaitingAck=false
+end
+@enduml

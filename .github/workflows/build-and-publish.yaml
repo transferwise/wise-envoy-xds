@@ -1,0 +1,66 @@
+name: "Build & Publish"
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    name: "Build & Test"
+    runs-on:
+      - ubuntu-latest
+    container: azul/zulu-openjdk:17
+    env:
+      GRADLE_OPTS: "-Djava.security.egd=file:/dev/./urandom -Dorg.gradle.parallel=true"
+    steps:
+      - name: "Checkout repo"
+        uses: actions/checkout@v2
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+        with:
+          gradle-version: current
+          gradle-home-cache-cleanup: true
+          # Comment out when you are upgrading gradle in a branch and doing tons of commits you would need to test.
+          # cache-read-only: false
+      - name: "Assemble jar"
+        uses: gradle/gradle-build-action@v2
+        with:
+          arguments: assemble --console=plain --info --stacktrace --parallel
+      - name: "Compile tests"
+        uses: gradle/gradle-build-action@v2
+        with:
+          arguments: compileTest --console=plain --info --stacktrace --parallel
+      - name: "Run checks"
+        uses: gradle/gradle-build-action@v2
+        with:
+          arguments: check -x test --console=plain --stacktrace
+      - name: "Publish Test Report"
+        uses: mikepenz/action-junit-report@v3
+        if: always()
+        with:
+          report_paths: 'build/test-results/**/*.xml'
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          require_tests: true
+      - name: Publish checkstyle report
+        if: failure()
+        uses: jwgmeligmeyling/checkstyle-github-action@master
+        with:
+          path: '**/build/reports/**/*.xml'
+      - name: Publish spotbugs report
+        if: failure()
+        uses: jwgmeligmeyling/spotbugs-github-action@master
+        with:
+          path: '**/build/reports/**/*.xml'
+      - name: "Test if publishing works"
+        uses: gradle/gradle-build-action@v2
+        with:
+          arguments: publishToMavenLocal --console=plain --info --stacktrace
+      - name: "Tag release"
+        if: github.ref == 'refs/heads/master'
+        uses: gradle/gradle-build-action@v2
+        with:
+          arguments: tagRelease --console=plain --info --stacktrace

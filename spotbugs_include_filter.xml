@@ -1,0 +1,8 @@
+<FindBugsFilter>
+    <Match>
+      <Or>
+        <Package name="~com\.transferwise\..*" />
+        <Package name="~com\.wise\..*" />
+      </Or>
+    </Match>
+</FindBugsFilter>

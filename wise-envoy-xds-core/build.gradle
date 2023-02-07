@@ -1,0 +1,36 @@
+repositories {
+    mavenCentral()
+}
+ext.projectName = "Wise Envoy xDS"
+ext.projectDescription = "Wise Envoy xDS"
+ext.projectArtifactName = "wise-envoy-xds-core"
+
+apply from: "${rootDir}/build.common.gradle"
+apply from: "${rootDir}/publishing.gradle"
+
+apply plugin: 'info.solidsoft.pitest'
+
+pitest {
+    pitestVersion = "1.9.5"
+    targetClasses = ['com.transferwise.envoy.xds*']
+    outputFormats = ['XML', 'HTML']
+
+    timestampedReports = false
+    verbose = true
+}
+
+dependencies {
+    implementation 'com.google.protobuf:protobuf-java-util:3.21.9'
+    implementation "com.google.guava:guava:31.1-jre"
+    implementation 'io.grpc:grpc-stub:1.51.0'
+    implementation 'javax.annotation:javax.annotation-api:1.3.2'
+    implementation 'com.github.spotbugs:spotbugs-annotations:4.7.3'
+    implementation 'org.slf4j:slf4j-api:2.0.4'
+    compileOnly 'com.transferwise.envoy:envoy-api:1.17.0' // Users are expected to provide a compatible envoy api
+    compileOnly 'org.projectlombok:lombok:1.18.24'
+    annotationProcessor 'org.projectlombok:lombok:1.18.24'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.24'
+    pitest 'org.pitest:pitest-junit5-plugin:1.1.0'
+    testImplementation 'com.transferwise.envoy:envoy-api:1.17.0'
+    testImplementation 'org.projectlombok:lombok:1.18.24'
+}

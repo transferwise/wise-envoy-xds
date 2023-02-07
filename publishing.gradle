@@ -1,0 +1,85 @@
+apply plugin: "maven-publish"
+apply plugin: "signing"
+
+ext.projectGitHubRepoName = "wise-envoy-xds"
+ext.projectScmUrl = "https://github.com/transferwise/${projectGitHubRepoName}"
+ext.projectScmConnection = "scm:git:git://github.com/transferwise/${projectGitHubRepoName}.git"
+ext.artifactoryUser = project.hasProperty("artifactoryUser") ? project.artifactoryUser : System.env.ARTIFACTORY_USER as String
+ext.artifactoryPassword = project.hasProperty("artifactoryPassword") ? project.artifactoryPassword : System.env.ARTIFACTORY_PASSWORD as String
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            afterEvaluate {
+                artifactId = projectArtifactName
+            }
+
+            pom {
+                name = projectName
+                description = projectDescription
+                url = projectScmUrl
+                packaging = "jar"
+                licenses {
+                    license {
+                        name = 'The Apache License, Version 2.0, Copyright 2022 Wise Plc'
+                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'JonathanO'
+                        name = 'Jonathan Oddy'
+                        email = "jonathan.oddy@wise.com"
+                        organization = "Wise Plc"
+                        organizationUrl = "https://github.com/transferwise"
+                    }
+                }
+                scm {
+                    connection = projectScmConnection
+                    developerConnection = projectScmConnection
+                    url = projectScmUrl
+                }
+            }
+        }
+    }
+
+    if (System.getenv("OSS_SIGNING_KEY")) {
+        signing {
+            useInMemoryPgpKeys(System.getenv("OSS_SIGNING_KEY"), System.getenv("OSS_SIGNING_PASSWORD"))
+            sign publishing.publications.mavenJava
+        }
+    }
+
+    task delombok(type: JavaExec, dependsOn: compileJava) {
+        classpath  = sourceSets.main.compileClasspath
+        mainClass = 'lombok.launch.Main'
+        ext.outputDir = file("$buildDir/delombok")
+        outputs.dir(outputDir)
+        args 'delombok'
+        sourceSets.main.java.srcDirs.each { 
+            inputs.dir(it)
+            args(it, "-d", outputDir)
+        }
+    }
+
+    javadoc {
+        dependsOn delombok
+        source = delombok.outputDir
+        if (JavaVersion.current().isJava9Compatible()) {
+            options.addBooleanOption('html5', true)
+        }
+    }
+
+    repositories {
+        maven {
+            url System.getenv("MAVEN_URL")
+            credentials {
+                username = System.getenv("MAVEN_USER")
+                password = System.getenv("MAVEN_PASSWORD")
+            }
+        }
+    }
+
+}
+

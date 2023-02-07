@@ -1,0 +1,106 @@
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.gradle.api.tasks.testing.logging.TestLogEvent
+
+buildscript {
+    repositories {
+        mavenCentral()
+        mavenLocal()
+    }
+}
+
+apply plugin: "java-library"
+apply plugin: "checkstyle"
+apply plugin: "idea"
+apply plugin: 'net.ltgt.errorprone'
+apply plugin: 'com.github.spotbugs'
+
+group = "com.transferwise.envoy"
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+dependencies {
+    testImplementation(platform('org.junit:junit-bom:5.8.2'))
+    testImplementation('org.junit.jupiter:junit-jupiter')
+    testImplementation("org.assertj:assertj-core:3.22.0")
+    testImplementation 'org.mockito:mockito-core:4.5.1'
+    testImplementation 'com.transferwise.envoy:envoy-api:1.17.0'
+    testImplementation 'org.mockito:mockito-junit-jupiter:4.5.1'
+    testImplementation 'net.jqwik:jqwik:1.6.5'
+    spotbugs 'com.github.spotbugs:spotbugs:4.7.2'
+    errorprone "com.google.errorprone:error_prone_core:2.15.0"
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    withSourcesJar()
+    withJavadocJar()
+}
+
+jar {
+    manifest {
+        attributes(
+                "Implementation-Title": projectName,
+                "Implementation-Version": archiveVersion
+        )
+    }
+}
+
+compileJava {
+    options.encoding = 'utf-8'
+    options.compilerArgs << '-parameters'
+    options.compilerArgs << '-Xlint'
+    options.compilerArgs << '-Xlint:-processing'
+}
+
+test {
+    useJUnitPlatform() {
+        includeEngines("junit-jupiter", "jqwik")
+    }
+    testLogging {
+        events TestLogEvent.STARTED, TestLogEvent.FAILED, TestLogEvent.SKIPPED, TestLogEvent.PASSED,
+                TestLogEvent.STANDARD_ERROR
+        showExceptions = true
+        showStackTraces = true
+        exceptionFormat = TestExceptionFormat.FULL
+    }
+}
+
+tasks.withType(Checkstyle) {
+    config = resources.text.fromFile(file('../google_checks.xml'))
+
+    maxWarnings = 0
+
+    reports {
+        xml.enabled true
+        html.enabled false
+    }
+}
+
+tasks.findAll { it.name.startsWith("spotbugs") }*.configure {
+    effort = "max"
+    maxHeapSize = '1g'
+    includeFilter = file("../spotbugs_include_filter.xml")
+    omitVisitors = ['FindReturnRef', 'ThrowingExceptions']
+
+    reports {
+        xml.enabled true
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.errorprone.disableWarningsInGeneratedCode = true
+}
+
+clean.doFirst {
+    delete "out"
+}
+
+yamlValidator {
+    searchPaths = ['src']
+    allowDuplicates = false
+    searchRecursive = true
+}

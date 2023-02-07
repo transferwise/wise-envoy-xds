@@ -27,7 +27,7 @@ dependencies {
     implementation 'com.github.spotbugs:spotbugs-annotations:4.7.3'
     implementation 'org.slf4j:slf4j-api:2.0.4'
     compileOnly 'com.transferwise.envoy:envoy-api:1.17.0' // Users are expected to provide a compatible envoy api
-    compileOnly 'org.projectlombok:lombok:1.18.24'
+    compileOnly 'org.projectlombok:lombok:1.18.26'
     annotationProcessor 'org.projectlombok:lombok:1.18.24'
     testAnnotationProcessor 'org.projectlombok:lombok:1.18.24'
     pitest 'org.pitest:pitest-junit5-plugin:1.1.0'

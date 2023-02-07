@@ -18,7 +18,7 @@ dependencies {
     implementation project(':wise-envoy-xds-core')
     implementation project(':wise-envoy-xds-example')
     implementation 'com.transferwise.envoy:envoy-api:1.17.0'
-    implementation 'org.projectlombok:lombok:1.18.24'
+    implementation 'org.projectlombok:lombok:1.18.26'
     implementation 'org.testcontainers:junit-jupiter:1.17.6'
     implementation('org.assertj:assertj-core:3.23.1')
     compileOnly 'org.projectlombok:lombok:1.18.24'

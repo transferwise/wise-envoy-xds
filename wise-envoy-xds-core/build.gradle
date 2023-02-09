@@ -30,7 +30,7 @@ dependencies {
     compileOnly 'org.projectlombok:lombok:1.18.26'
     annotationProcessor 'org.projectlombok:lombok:1.18.26'
     testAnnotationProcessor 'org.projectlombok:lombok:1.18.26'
-    pitest 'org.pitest:pitest-junit5-plugin:1.1.0'
+    pitest 'org.pitest:pitest-junit5-plugin:1.1.2'
     testImplementation 'com.transferwise.envoy:envoy-api:1.17.0'
     testImplementation 'org.projectlombok:lombok:1.18.26'
 }

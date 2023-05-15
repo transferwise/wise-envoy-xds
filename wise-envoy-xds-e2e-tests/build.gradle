@@ -14,7 +14,7 @@ dependencies {
     implementation 'com.github.spotbugs:spotbugs-annotations:4.7.3'
     implementation 'com.google.protobuf:protobuf-java:3.21.12'
     implementation 'com.google.protobuf:protobuf-java-util:3.21.9'
-    implementation 'io.grpc:grpc-stub:1.52.1'
+    implementation 'io.grpc:grpc-stub:1.55.1'
     implementation project(':wise-envoy-xds-core')
     implementation project(':wise-envoy-xds-example')
     implementation 'com.transferwise.envoy:envoy-api:1.17.0'

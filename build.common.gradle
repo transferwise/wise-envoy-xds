@@ -17,7 +17,9 @@ apply plugin: 'com.github.spotbugs'
 group = "com.transferwise.envoy"
 
 repositories {
-    maven { url 'https://arti.tw.ee/artifactory/libs-release' }
+    maven {
+        url 'https://arti.tw.ee/artifactory/libs-release'
+    }
     mavenCentral()
     mavenLocal()
 }

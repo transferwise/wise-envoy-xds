@@ -54,7 +54,7 @@ publishing {
     task delombok(type: JavaExec, dependsOn: compileJava) {
         classpath  = sourceSets.main.compileClasspath
         mainClass = 'lombok.launch.Main'
-        ext.outputDir = file("$buildDir/delombok")
+        ext.outputDir = file("${layout.buildDirectory.get()}/delombok")
         outputs.dir(outputDir)
         args 'delombok'
         sourceSets.main.java.srcDirs.each { 

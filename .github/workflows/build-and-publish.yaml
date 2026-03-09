@@ -11,39 +11,33 @@ on:
 jobs:
   build-and-test:
     name: "Build & Test"
-    runs-on:
-      - ubuntu-latest
+    runs-on: gha-production-medium-arm64
+    container: ci-images-release.arti.tw.ee/actions_java21
     env:
       GRADLE_OPTS: "-Djava.security.egd=file:/dev/./urandom -Dorg.gradle.parallel=true -Dorg.gradle.console=plain -Dorg.gradle.logging.stacktrace=all"
     steps:
       - name: "Checkout repo"
-        uses: actions/checkout@v3
-      - name: "Setup Java"
-        uses: actions/setup-java@v3
+        uses: actions/checkout@v4
+      - name: "Add repo as safe directory"
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: "Clear dirty runner"
+        run: |
+          rm -rfv ~/.gradle || true
+      - name: "Cache gradle"
+        uses: actions/cache@v4
         with:
-          distribution: zulu
-          java-version: 17
-      - name: Setup Gradle
-        uses: gradle/gradle-build-action@v2
-        with:
-          gradle-version: current
-          gradle-home-cache-cleanup: true
-          # Comment out when you are upgrading gradle in a branch and doing tons of commits you would need to test.
-          # cache-read-only: false
+          path: ~/.gradle
+          key: gradle-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', '*.gradle*', '*/*.gradle*') }}
+          restore-keys: gradle-
       - name: "Assemble jar"
-        uses: gradle/gradle-build-action@v2
-        with:
-          arguments: assemble --info --parallel
+        run: ./gradlew assemble --info --parallel
       - name: "Compile tests"
-        uses: gradle/gradle-build-action@v2
-        with:
-          arguments: compileTest --info --parallel
+        run: ./gradlew compileTest --info --parallel
       - name: "Run checks"
-        uses: gradle/gradle-build-action@v2
-        with:
-          arguments: check
+        run: ./gradlew check
       - name: "Publish Test Report"
-        uses: mikepenz/action-junit-report@v3
+        uses: mikepenz/action-junit-report@v4
         if: always()
         with:
           report_paths: '**/build/test-results/**/*.xml'
@@ -51,20 +45,16 @@ jobs:
           require_tests: true
       - name: Publish checkstyle report
         if: failure()
-        uses: jwgmeligmeyling/checkstyle-github-action@master
+        uses: jwgmeligmeyling/checkstyle-github-action@v1.2
         with:
           path: '**/build/reports/**/*.xml'
       - name: Publish spotbugs report
         if: failure()
-        uses: jwgmeligmeyling/spotbugs-github-action@master
+        uses: jwgmeligmeyling/spotbugs-github-action@v1.2
         with:
           path: '**/build/reports/**/*.xml'
       - name: "Test if publishing works"
-        uses: gradle/gradle-build-action@v2
-        with:
-          arguments: publishToMavenLocal --info
+        run: ./gradlew publishToMavenLocal --info
       - name: "Tag release"
         if: github.ref == 'refs/heads/main'
-        uses: gradle/gradle-build-action@v2
-        with:
-          arguments: tagRelease --info
+        run: ./gradlew tagRelease --info

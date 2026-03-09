@@ -214,6 +214,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
         }
     }
 
+    @SuppressWarnings("GuardedBy") // Lock is held by synchronized callers (onError, onCompleted)
     @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Spotbugs is confused by lambdas")
     @GuardedBy("this")
     private void cleanupOnDisconnect(RunWithExceptions runner) {

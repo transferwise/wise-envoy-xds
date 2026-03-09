@@ -20,8 +20,8 @@ plugins {
 
 idea.project {
     vcs = 'Git'
-    languageLevel = JavaVersion.VERSION_17
-    targetBytecodeVersion = JavaVersion.VERSION_17
+    languageLevel = JavaVersion.VERSION_21
+    targetBytecodeVersion = JavaVersion.VERSION_21
 }
 
 idea.module {

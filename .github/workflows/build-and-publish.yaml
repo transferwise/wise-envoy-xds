@@ -17,33 +17,26 @@ jobs:
       GRADLE_OPTS: "-Djava.security.egd=file:/dev/./urandom -Dorg.gradle.parallel=true -Dorg.gradle.console=plain -Dorg.gradle.logging.stacktrace=all"
     steps:
       - name: "Checkout repo"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: "Setup Java"
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: zulu
           java-version: 17
       - name: Setup Gradle
-        uses: gradle/gradle-build-action@v2
+        uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: current
           gradle-home-cache-cleanup: true
           # Comment out when you are upgrading gradle in a branch and doing tons of commits you would need to test.
           # cache-read-only: false
       - name: "Assemble jar"
-        uses: gradle/gradle-build-action@v2
-        with:
-          arguments: assemble --info --parallel
+        run: ./gradlew assemble --info --parallel
       - name: "Compile tests"
-        uses: gradle/gradle-build-action@v2
-        with:
-          arguments: compileTest --info --parallel
+        run: ./gradlew compileTest --info --parallel
       - name: "Run checks"
-        uses: gradle/gradle-build-action@v2
-        with:
-          arguments: check
+        run: ./gradlew check
       - name: "Publish Test Report"
-        uses: mikepenz/action-junit-report@v3
+        uses: mikepenz/action-junit-report@v4
         if: always()
         with:
           report_paths: '**/build/test-results/**/*.xml'
@@ -60,11 +53,7 @@ jobs:
         with:
           path: '**/build/reports/**/*.xml'
       - name: "Test if publishing works"
-        uses: gradle/gradle-build-action@v2
-        with:
-          arguments: publishToMavenLocal --info
+        run: ./gradlew publishToMavenLocal --info
       - name: "Tag release"
         if: github.ref == 'refs/heads/main'
-        uses: gradle/gradle-build-action@v2
-        with:
-          arguments: tagRelease --info
+        run: ./gradlew tagRelease --info

@@ -11,16 +11,21 @@ import static org.mockito.Mockito.when;
 
 import com.transferwise.envoy.xds.CommonDiscoveryRequest;
 import com.transferwise.envoy.xds.DiscoveryService;
+import com.transferwise.envoy.xds.DiscoveryServiceManager;
 import com.transferwise.envoy.xds.NodeConfig;
 import com.transferwise.envoy.xds.TypeUrl;
 import com.transferwise.envoy.xds.XdsConfig;
+import com.transferwise.envoy.xds.api.DiscoveryServiceManagerMetrics;
 import com.transferwise.envoy.xds.api.IncrementalConfigBuilder;
+import com.transferwise.envoy.xds.api.utils.QueueingStateBacklog;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
+import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.Resource;
 import io.grpc.stub.StreamObserver;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -362,9 +367,10 @@ public class IncrementalDiscoveryServiceTest {
         DeltaDiscoveryResponse resp = responseCaptor.getValue();
         assertThat(resp.getResourcesList()).hasSize(1).first().extracting(Resource::getName).isEqualTo("foo");
         assertThat(resp.getTypeUrl()).isEqualTo(TypeUrl.CDS.getTypeUrl());
-        // Since bar and baz don't exist, they must have been removed since this client last got a state update (before it lost connection to the ADS.)
-        // Tell it to delete them.
-        assertThat(resp.getRemovedResourcesList()).containsExactlyInAnyOrder("bar", "baz");
+        // Since bar and baz came from initial_resource_versions, they are stale resources from the previous stream.
+        // They should not be removed in the immediate subscription response, because ADS has not yet replayed and ACKed
+        // dependent resource types such as RDS.
+        assertThat(resp.getRemovedResourcesList()).isEmpty();
 
         assertThat(ds.awaitingAck()).isTrue();
     }
@@ -406,10 +412,106 @@ public class IncrementalDiscoveryServiceTest {
         DeltaDiscoveryResponse resp = responseCaptor.getValue();
         assertThat(resp.getResourcesList()).hasSize(1).first().extracting(Resource::getName).isEqualTo("foo");
         assertThat(resp.getTypeUrl()).isEqualTo(TypeUrl.CDS.getTypeUrl());
-        // Envoy asked for bar, but it doesn't exist. While baz exists in the initial versions, the client has not asked to subscribe to it, so we don't send a remove.
-        assertThat(resp.getRemovedResourcesList()).containsOnly("bar");
+        // Envoy asked for bar, but also reported that it already knows bar in initial_resource_versions.
+        // That makes bar a stale resource from the previous stream, so its removal should be deferred.
+        // Baz exists in the initial versions, but the client has not asked to subscribe to it, so we don't remove it either.
+        assertThat(resp.getRemovedResourcesList()).isEmpty();
 
         assertThat(ds.awaitingAck()).isTrue();
+    }
+
+    @Test
+    public void testReconnectInitialResourceVersionRemovalsWaitForConfiguredAck(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
+        @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder,
+        @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
+
+        final DummyUpdate initState = new DummyUpdate();
+        final NodeConfig<Object> nodeConfig = NodeConfig.builder()
+            .xdsConfig(XdsConfig.builder().clientDetails(new Object()).build())
+            .build();
+
+        final RouteConfiguration routeWithoutDeletedCluster = RouteConfiguration.newBuilder()
+            .setName("route-x")
+            .build();
+
+        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
+            .thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
+        when(routeConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
+            .thenReturn(IncrementalConfigBuilder.Resources.<RouteConfiguration>builder()
+                .resource(IncrementalConfigBuilder.NamedMessage.of(routeWithoutDeletedCluster))
+                .build());
+
+        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> cds = new IncrementalDiscoveryService<>(
+            TypeUrl.CDS,
+            responseObserver,
+            clusterConfigBuilder,
+            nodeConfig,
+            new WildcardSubManager(nodeConfig)
+        );
+        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> rds = new IncrementalDiscoveryService<>(
+            TypeUrl.RDS,
+            responseObserver,
+            routeConfigBuilder,
+            nodeConfig,
+            new SubListSubManager(nodeConfig)
+        );
+        DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> discoveryServiceManager = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.CDS, cds, TypeUrl.RDS, rds),
+            TypeUrl.ADD_ORDER,
+            TypeUrl.REMOVE_ORDER,
+            QueueingStateBacklog.<DummyUpdate>factory().build(),
+            DiscoveryServiceManagerMetrics.NOOP_METRICS
+        );
+
+        discoveryServiceManager.init(initState, TypeUrl.RDS);
+        InOrder inOrder = inOrder(responseObserver);
+
+        discoveryServiceManager.processUpdate(deltaRequest(TypeUrl.CDS, DeltaDiscoveryRequest.newBuilder()
+            .setTypeUrl(TypeUrl.CDS.getTypeUrl())
+            .addResourceNamesSubscribe("*")
+            .putInitialResourceVersions("cluster-a", "1")
+            .build()));
+
+        inOrder.verify(responseObserver).onNext(responseCaptor.capture());
+        DeltaDiscoveryResponse cdsReconnectResponse = responseCaptor.getValue();
+        assertThat(cdsReconnectResponse.getTypeUrl()).isEqualTo(TypeUrl.CDS.getTypeUrl());
+        assertThat(cdsReconnectResponse.getResourcesList()).isEmpty();
+        assertThat(cdsReconnectResponse.getRemovedResourcesList()).isEmpty();
+
+        discoveryServiceManager.processUpdate(deltaRequest(TypeUrl.CDS, DeltaDiscoveryRequest.newBuilder()
+            .setTypeUrl(TypeUrl.CDS.getTypeUrl())
+            .setResponseNonce(cdsReconnectResponse.getNonce())
+            .build()));
+
+        discoveryServiceManager.processUpdate(deltaRequest(TypeUrl.RDS, DeltaDiscoveryRequest.newBuilder()
+            .setTypeUrl(TypeUrl.RDS.getTypeUrl())
+            .addResourceNamesSubscribe("route-x")
+            .putInitialResourceVersions("route-x", "1")
+            .build()));
+
+        inOrder.verify(responseObserver).onNext(responseCaptor.capture());
+        DeltaDiscoveryResponse rdsReconnectResponse = responseCaptor.getValue();
+        assertThat(rdsReconnectResponse.getTypeUrl()).isEqualTo(TypeUrl.RDS.getTypeUrl());
+        assertThat(rdsReconnectResponse.getResourcesList()).hasSize(1).first().extracting(Resource::getName).isEqualTo("route-x");
+        assertThat(rdsReconnectResponse.getRemovedResourcesList()).isEmpty();
+
+        discoveryServiceManager.processUpdate(deltaRequest(TypeUrl.RDS, DeltaDiscoveryRequest.newBuilder()
+            .setTypeUrl(TypeUrl.RDS.getTypeUrl())
+            .setResponseNonce(rdsReconnectResponse.getNonce())
+            .build()));
+
+        inOrder.verify(responseObserver).onNext(responseCaptor.capture());
+        DeltaDiscoveryResponse cdsDeferredRemovalResponse = responseCaptor.getValue();
+        assertThat(cdsDeferredRemovalResponse.getTypeUrl()).isEqualTo(TypeUrl.CDS.getTypeUrl());
+        assertThat(cdsDeferredRemovalResponse.getResourcesList()).isEmpty();
+        assertThat(cdsDeferredRemovalResponse.getRemovedResourcesList()).containsExactly("cluster-a");
+    }
+
+    private CommonDiscoveryRequest<DeltaDiscoveryRequest> deltaRequest(TypeUrl typeUrl, DeltaDiscoveryRequest request) {
+        return CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
+            .typeUrl(typeUrl.getTypeUrl())
+            .message(request)
+            .build();
     }
 
 }

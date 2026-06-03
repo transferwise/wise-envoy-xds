@@ -290,6 +290,36 @@ public class DiscoveryServiceManagerTest {
         inOrder.verify(mockDiscoveryServiceA).sendNetworkUpdatePost();
     }
 
+    @Test
+    public void testConfiguredDelayWithoutAckBlocksQueuedUpdates() {
+        final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceA = spy(StateAwareFakeDiscoveryService.class);
+        final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceB = spy(StateAwareFakeDiscoveryService.class);
+
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.CDS, mockDiscoveryServiceA, TypeUrl.RDS, mockDiscoveryServiceB),
+            List.of(TypeUrl.CDS, TypeUrl.RDS), List.of(TypeUrl.RDS, TypeUrl.CDS),
+            new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS
+        );
+
+        dsm.init(new DummyUpdate(), TypeUrl.RDS);
+
+        final var update = new DummyUpdate();
+        final var cdsRequest = CommonDiscoveryRequest.builder()
+            .typeUrl(TypeUrl.CDS.getTypeUrl())
+            .build();
+
+        dsm.processUpdate(cdsRequest);
+        dsm.processUpdate(cdsRequest);
+
+        dsm.pushUpdates(update);
+
+        dsm.processUpdate(cdsRequest);
+        dsm.processUpdate(cdsRequest);
+
+        verify(mockDiscoveryServiceA, never()).sendNetworkUpdatePre();
+        verify(mockDiscoveryServiceB, never()).sendNetworkUpdatePre();
+    }
+
     public static class StateAwareFakeDiscoveryService implements DiscoveryService<Message, DummyUpdate> {
 
         private boolean initialized = false;

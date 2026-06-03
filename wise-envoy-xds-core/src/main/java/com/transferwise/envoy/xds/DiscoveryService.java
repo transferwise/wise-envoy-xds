@@ -56,6 +56,27 @@ public interface DiscoveryService<RequestT extends Message, StateUpdT> {
     void sendNetworkUpdatePost();
 
     /**
+     * Controls whether removals discovered from a reconnecting delta client's initial_resource_versions
+     * should be delayed for manager-coordinated ADS remove ordering.
+     */
+    default void setDeferInitialResourceVersionRemovals(boolean deferInitialResourceVersionRemovals) {
+    }
+
+    /**
+     * Returns true if this service has removals discovered from a reconnecting delta client's
+     * initial_resource_versions that still need to be sent in ADS remove order.
+     */
+    default boolean hasDeferredReconnectRemovals() {
+        return false;
+    }
+
+    /**
+     * Sends pending removals discovered from a reconnecting delta client's initial_resource_versions.
+     */
+    default void sendDeferredReconnectRemovals() {
+    }
+
+    /**
      * Identifies the specific Discover Service type this instance handles.
      */
     TypeUrl getTypeUrl();

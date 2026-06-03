@@ -67,6 +67,7 @@ public class DiscoveryServiceManagerTest {
 
         InOrder inOrder = Mockito.inOrder(mockDiscoveryService);
         inOrder.verify(mockDiscoveryService).init(initUpdate);
+        inOrder.verify(mockDiscoveryService).setDeferInitialResourceVersionRemovals(false);
 
         var update = new DummyUpdate();
 
@@ -76,6 +77,7 @@ public class DiscoveryServiceManagerTest {
         inOrder.verify(mockDiscoveryService).awaitingAck();
         inOrder.verify(mockDiscoveryService).sendNetworkUpdatePost();
         inOrder.verify(mockDiscoveryService).awaitingAck();
+        inOrder.verify(mockDiscoveryService).hasDeferredReconnectRemovals();
         verifyNoMoreInteractions(mockDiscoveryService);
     }
 

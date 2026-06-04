@@ -17,6 +17,7 @@ import com.transferwise.envoy.e2e.utils.EnvoyContainer;
 import com.transferwise.envoy.e2e.utils.GrpcXdsV3ProtocolLoggingInterceptor;
 import com.transferwise.envoy.xds.AggregatedDiscoveryService;
 import com.transferwise.envoy.xds.TypeUrl;
+import com.transferwise.envoy.xds.XdsConfig;
 import com.transferwise.envoy.xds.api.utils.MergingStateBacklog;
 import com.transferwise.envoy.example.ClusterManager;
 import com.transferwise.envoy.example.config.ClientConfig;
@@ -85,6 +86,11 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
     protected abstract AsserterT envoyAssertThat(Conversation conversation);
 
     protected AggregatedDiscoveryService<SimpleUpdate, ClientConfig> configureAds(ClusterManager clusterManager, List<DiscoveryServiceManagerEventListener> conversations) {
+        return configureAds(clusterManager, conversations, null);
+    }
+
+    protected AggregatedDiscoveryService<SimpleUpdate, ClientConfig> configureAds(ClusterManager clusterManager, List<DiscoveryServiceManagerEventListener> conversations, TypeUrl delayUpdatesUntilAckOf) {
+        StaticClientConfigSource staticClientConfigSource = new StaticClientConfigSource();
         return new AggregatedDiscoveryService<>(
             clusterManager, // Cluster managers track the network state and tell us when it changes
             ImmutableList.of(// ConfigBuilders generate envoy configuration (xDS messages) based on network state changes and the client config
@@ -92,7 +98,14 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
                 new ClusterLoadAssignmentConfigBuilder(),
                 new RouteConfigurationConfigBuilder()
             ),
-            new StaticClientConfigSource(), // ClientConfigProviders provide per-client configuration to the config builders
+            node -> {
+                XdsConfig<ClientConfig> staticConfig = staticClientConfigSource.lookup(node);
+                return XdsConfig.<ClientConfig>builder()
+                    .clientDetails(staticConfig.getClientDetails())
+                    .delayUpdatesUntilAckOf(delayUpdatesUntilAckOf)
+                    .silentNacks(staticConfig.isSilentNacks())
+                    .build();
+            }, // ClientConfigProviders provide per-client configuration to the config builders
             ImmutableList.of(), // Our example has no event listeners, but you can use these for things like tracking connected clients
             MergingStateBacklog.factory(), // Strategy for handling a backlog of network state updates.
             () -> {
@@ -101,6 +114,48 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
                 return listener;
             }
         );
+    }
+
+    protected Conversation reconnectAfterRemovingBar(TypeUrl delayUpdatesUntilAckOf) throws IOException, InterruptedException {
+        ClusterManager clusterManager = new ClusterManager();
+
+        List<DiscoveryServiceManagerEventListener> conversations = Collections.synchronizedList(new ArrayList<>());
+
+        AggregatedDiscoveryService<SimpleUpdate, ClientConfig> ads = configureAds(clusterManager, conversations, delayUpdatesUntilAckOf);
+
+        ConversationLogger conversationInterceptor = new ConversationLogger();
+        server = ServerBuilder.forPort(6566).addService(ads).intercept(conversationInterceptor).intercept(new GrpcXdsV3ProtocolLoggingInterceptor()).build();
+        server.start();
+        org.testcontainers.Testcontainers.exposeHostPorts(6566);
+
+        await().atMost(30, TimeUnit.SECONDS)
+            .untilAsserted(() -> assertThat(conversationInterceptor.getConversations()).isNotEmpty().first(assertFactory()).hadConversationsWith(TypeUrl.CDS.getTypeUrl(), TypeUrl.RDS.getTypeUrl()));
+        await().atMost(30, TimeUnit.SECONDS).until(() -> conversations.size() > 0 && conversations.get(0).isIdle());
+
+        clusterManager.setEndpoints(ImmutableMap.of(
+            "foo", ImmutableList.of(HostAndPort.fromString("127.0.0.5"), HostAndPort.fromString("127.0.0.6")),
+            "bar", ImmutableList.of(HostAndPort.fromString("127.0.0.7"), HostAndPort.fromString("127.0.0.8"))
+        ));
+
+        await().atMost(30, TimeUnit.SECONDS).until(() -> conversations.get(0).getPushed() > 0 && conversations.get(0).isIdle());
+
+        TypedEnvoyConfigDump dump = adminClient.configDump();
+        assertThat(getClusters(dump)).extracting(Cluster::getName).containsExactlyInAnyOrder("foo", "bar");
+
+        server.shutdownNow();
+        server.awaitTermination();
+
+        clusterManager.removeService("bar");
+
+        server = ServerBuilder.forPort(6566).addService(ads).intercept(conversationInterceptor).intercept(new GrpcXdsV3ProtocolLoggingInterceptor()).build();
+        server.start();
+        org.testcontainers.Testcontainers.exposeHostPorts(6566);
+
+        await().atMost(30, TimeUnit.SECONDS)
+            .untilAsserted(() -> assertThat(conversationInterceptor.getConversations()).hasSize(2).last(assertFactory()).hadConversationsWith(TypeUrl.CDS.getTypeUrl(), TypeUrl.RDS.getTypeUrl(), TypeUrl.EDS.getTypeUrl()));
+        await().atMost(30, TimeUnit.SECONDS).until(() -> conversations.size() > 1 && conversations.get(1).isIdle());
+
+        return conversationInterceptor.getConversations().get(1);
     }
 
     @Test

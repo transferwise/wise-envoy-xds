@@ -68,3 +68,11 @@ jobs:
         uses: gradle/gradle-build-action@v2
         with:
           arguments: tagRelease --info
+      - name: "Publish"
+        uses: gradle/gradle-build-action@v2
+        with:
+          arguments: publish --info
+        env:
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
+          MAVEN_PUBLISH_URL: https://arti.tw.ee/artifactory/libs-snapshot-local

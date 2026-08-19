@@ -1,6 +1,11 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [1.0.1] - 2026-08-19
+### Changed
+* Bump com.google.protobuf:protobuf-java from 3.21.12 to 3.25.9
+* Bump com.google.protobuf:protobuf-java-util from 3.21.12 to 3.25.9
+
 ## [1.0.0] - 2023-02-09
 ### Added
 * Disabled dependabot for envoy-api package

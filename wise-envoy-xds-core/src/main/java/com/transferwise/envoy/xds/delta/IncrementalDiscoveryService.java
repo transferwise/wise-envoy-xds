@@ -14,6 +14,7 @@ import io.envoyproxy.envoy.service.discovery.v3.Resource;
 import io.grpc.stub.StreamObserver;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -29,6 +30,10 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
     private Long version = 0L;
 
     private final SubManager subManager;
+
+    private final HashSet<String> deferredReconnectRemovals = new HashSet<>();
+
+    private boolean deferInitialResourceVersionRemovals = false;
 
     IncrementalDiscoveryService(TypeUrl myTypeUrl, StreamObserver<DeltaDiscoveryResponse> responseObserver, IncrementalConfigBuilder<E, StateUpdT, DetailsT> configBuilder, NodeConfig<DetailsT> nodeConfig,
                                 SubManager subManager) {
@@ -75,12 +80,16 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
         // If the resource doesn't exist, however, we will need to tell it to delete it.
         // We check against the filter because some values in resource name lists have special meaning to sub management (e.g. wildcards),
         // they're not actually resource names.
-        HashSet<String> removed = newSubs.stream().filter(filter).collect(Collectors.toCollection(HashSet::new));
+        HashSet<String> removed = newSubs.stream()
+            .filter(filter)
+            .filter(resourceName -> !initialState.contains(resourceName))
+            .collect(Collectors.toCollection(HashSet::new));
         // If envoy sent us an initial resource versions map it might also contain things that don't exist anymore.
-        // Again, we will need to tell envoy to delete it, but only if envoy has subscribed for updates about it.
+        // Again, we will need to tell envoy to delete it, but only if envoy has subscribed for updates about it. We defer
+        // these removals so DiscoveryServiceManager can send them in ADS remove order after dependent types have ACKed.
         // This is necessary because envoy doesn't explicitly subscribe to named resources (e.g. when it uses wildcards), so it can be
         // subscribed to things it has never explicitly asked us for.
-        initialState.stream().filter(filter).forEach(removed::add);
+        HashSet<String> reconnectRemovals = initialState.stream().filter(filter).collect(Collectors.toCollection(HashSet::new));
 
         // Now actually generate the resources for this sub update.
         IncrementalConfigBuilder.Resources<E> resources = getResources(filter);
@@ -88,8 +97,15 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
         for (IncrementalConfigBuilder.NamedMessage<E> msg: resources.getResources()) {
             // If we generated a resource we don't want to tell envoy to remove it.
             removed.remove(msg.getName());
+            reconnectRemovals.remove(msg.getName());
+            deferredReconnectRemovals.remove(msg.getName());
         }
 
+        if (deferInitialResourceVersionRemovals) {
+            deferredReconnectRemovals.addAll(reconnectRemovals);
+        } else {
+            removed.addAll(reconnectRemovals);
+        }
         pushResources(resources.getResources(), removed);
     }
 
@@ -99,11 +115,43 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
     }
 
     @Override
+    public void setDeferInitialResourceVersionRemovals(boolean deferInitialResourceVersionRemovals) {
+        this.deferInitialResourceVersionRemovals = deferInitialResourceVersionRemovals;
+    }
+
+    @Override
     public void pushNewState(IncrementalConfigBuilder.Response<E> response) {
         if (response.getAddAndUpdates().isEmpty() && response.getRemoves().isEmpty()) {
             return;
         }
         pushResources(response.getAddAndUpdates(), response.getRemoves());
+    }
+
+    @Override
+    public boolean hasDeferredReconnectRemovals() {
+        return !deferredReconnectRemovals.isEmpty();
+    }
+
+    @Override
+    public void sendDeferredReconnectRemovals() {
+        if (deferredReconnectRemovals.isEmpty()) {
+            return;
+        }
+
+        Predicate<String> currentlySubscribed = subFilter();
+        HashSet<String> removals = deferredReconnectRemovals.stream()
+            .filter(currentlySubscribed)
+            .collect(Collectors.toCollection(HashSet::new));
+
+        IncrementalConfigBuilder.Resources<E> currentResources = getResources(currentlySubscribed);
+        for (IncrementalConfigBuilder.NamedMessage<E> msg: currentResources.getResources()) {
+            removals.remove(msg.getName());
+        }
+
+        deferredReconnectRemovals.clear();
+        if (!removals.isEmpty()) {
+            pushResources(List.of(), removals);
+        }
     }
 
     private void pushResources(Collection<IncrementalConfigBuilder.NamedMessage<E>> resources, Collection<String> removals) {
